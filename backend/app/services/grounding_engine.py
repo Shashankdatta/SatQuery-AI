@@ -30,7 +30,7 @@ def compute_iou(box_a: List[float], box_b: List[float]) -> float:
     return inter_area / union_area
 
 
-def apply_nms(boxes: List[Dict[str, Any]], iou_threshold: float = 0.35) -> List[Dict[str, Any]]:
+def apply_nms(boxes: List[Dict[str, Any]], iou_threshold: float = 0.18) -> List[Dict[str, Any]]:
     """Applies Non-Maximum Suppression to eliminate duplicate overlapping boxes."""
     if not boxes:
         return []
@@ -98,7 +98,7 @@ class GroundingEngine:
             candidates = self._detect_salient_regions(img_np, width, height)
 
         # Apply Non-Maximum Suppression to eliminate duplicates
-        filtered = apply_nms(candidates, iou_threshold=0.35)
+        filtered = apply_nms(candidates, iou_threshold=0.18)
 
         # Limit to top detections
         filtered = filtered[:max_detections]
@@ -124,58 +124,115 @@ class GroundingEngine:
         height: int
     ) -> List[Dict[str, Any]]:
         """
-        Identifies discrete structure footprints using morphological gradient & contrast analysis.
-        Enforces realistic building footprint aspect ratios and size constraints.
+        Identifies discrete structure footprints using connected-component analysis,
+        negative water/vegetation masking, and geometric aspect ratio constraints.
+        Enforces verified instance separation and merges overlapping duplicate boxes.
         """
         gray = np.dot(img_np[..., :3], [0.2989, 0.5870, 0.1140])
-        total_area = float(width * height)
+        total_pixels = float(width * height)
 
-        # Sobel edge gradient magnitude
-        gy, gx = np.gradient(gray)
-        grad_mag = np.sqrt(gx**2 + gy**2)
+        # 1. Negative Mask Filters
+        # Water mask (high blue relative to red, dark surface; cast to int to prevent overflow)
+        is_water = (img_np[..., 2].astype(int) > img_np[..., 0].astype(int) + 15) & (gray < 110) & (img_np[..., 1].astype(int) < 135)
 
-        candidates = []
-        tile_w = max(40, width // 10)
-        tile_h = max(40, height // 10)
+        # Vegetation mask (VGDI > 0.08)
+        r = img_np[..., 0].astype(float)
+        g = img_np[..., 1].astype(float)
+        b = img_np[..., 2].astype(float)
+        vgdi = (2 * g - r - b) / (2 * g + r + b + 1e-6)
+        is_veg = vgdi > 0.08
 
-        for y in range(0, height - tile_h, tile_h // 2):
-            for x in range(0, width - tile_w, tile_w // 2):
-                patch_gray = gray[y:y+tile_h, x:x+tile_w]
-                patch_grad = grad_mag[y:y+tile_h, x:x+tile_w]
+        # Background median
+        bg_med = np.median(gray)
+        contrast = np.abs(gray - bg_med)
 
-                if patch_gray.size == 0:
-                    continue
+        # Structure mask: distinct contrast against ground, not water, not vegetation
+        structure_mask = (contrast > 18.0) & (~is_water) & (~is_veg)
 
-                local_std = float(np.std(patch_gray))
-                max_edge = float(np.max(patch_grad))
+        # 2. Connected Component Instance Extraction via BFS
+        step = 2
+        mask_sub = structure_mask[::step, ::step]
+        sub_h, sub_w = mask_sub.shape
+        sub_visited = np.zeros((sub_h, sub_w), dtype=bool)
+        candidate_instances: List[Dict[str, Any]] = []
 
-                # Structure footprints have distinct contrast against local background and sharp edges
-                if local_std > 12.0 and max_edge > 18.0:
-                    edge_mask = patch_grad > max(12.0, max_edge * 0.40)
-                    active_y, active_x = np.where(edge_mask)
+        for sy in range(sub_h):
+            for sx in range(sub_w):
+                if mask_sub[sy, sx] and not sub_visited[sy, sx]:
+                    queue = [(sy, sx)]
+                    sub_visited[sy, sx] = True
+                    pts = []
+                    while queue:
+                        cy, cx = queue.pop()
+                        pts.append((cy * step, cx * step))
+                        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            ny, nx = cy + dy, cx + dx
+                            if 0 <= ny < sub_h and 0 <= nx < sub_w:
+                                if mask_sub[ny, nx] and not sub_visited[ny, nx]:
+                                    sub_visited[ny, nx] = True
+                                    queue.append((ny, nx))
 
-                    if len(active_y) >= 8:
-                        sub_ymin = y + int(np.min(active_y))
-                        sub_ymax = y + int(np.max(active_y))
-                        sub_xmin = x + int(np.min(active_x))
-                        sub_xmax = x + int(np.max(active_x))
+                    if len(pts) >= 12:
+                        ys = [p[0] for p in pts]
+                        xs = [p[1] for p in pts]
+                        ymin, ymax = min(ys), max(ys)
+                        xmin, xmax = min(xs), max(xs)
+                        bw = xmax - xmin
+                        bh = ymax - ymin
+                        area = bw * bh
+                        aspect = max(bw, bh) / max(1, min(bw, bh))
+                        pixel_count = len(pts) * (step * step)
+                        fill = pixel_count / max(1.0, float(area))
 
-                        bw = max(10, sub_xmax - sub_xmin)
-                        bh = max(10, sub_ymax - sub_ymin)
-                        b_area = bw * bh
+                        # Enforce building instance constraints:
+                        # - Minimum footprint dimensions
+                        # - Aspect ratio <= 3.2 (excludes linear infrastructure like roads)
+                        # - Fill factor >= 0.35 (excludes sparse background textures)
+                        # - Area <= 12% of scene (excludes broad regional terrain)
+                        if (
+                            18 <= bw <= 320 and
+                            18 <= bh <= 280 and
+                            aspect <= 3.2 and
+                            fill >= 0.35 and
+                            area <= (0.12 * total_pixels)
+                        ):
+                            candidate_instances.append({
+                                "label": "building",
+                                "box": [float(ymin), float(xmin), float(ymax), float(xmax)],
+                                "score": 0.88,
+                                "area": area
+                            })
 
-                        # Filter: area between 0.05% and 15% of image, aspect ratio between 0.2 and 5.0
-                        if (0.0005 * total_area) <= b_area <= (0.15 * total_area):
-                            aspect = float(bw) / float(bh)
-                            if 0.20 <= aspect <= 5.0:
-                                score = min(0.95, 0.72 + (local_std / 120.0) * 0.22)
-                                candidates.append({
-                                    "label": "structure",
-                                    "box": [float(sub_ymin), float(sub_xmin), float(sub_ymax), float(sub_xmax)],
-                                    "score": round(score, 3)
-                                })
+        # 3. Aggressive Duplicate Removal & Envelope Merging (IoU > 0.15)
+        merged: List[Dict[str, Any]] = []
+        for cand in candidate_instances:
+            matched = False
+            for existing in merged:
+                y1_a, x1_a, y2_a, x2_a = cand["box"]
+                y1_b, x1_b, y2_b, x2_b = existing["box"]
 
-        return candidates
+                inter_y1 = max(y1_a, y1_b)
+                inter_x1 = max(x1_a, x1_b)
+                inter_y2 = min(y2_a, y2_b)
+                inter_x2 = min(x2_a, x2_b)
+
+                if inter_y2 > inter_y1 and inter_x2 > inter_x1:
+                    inter_area = (inter_y2 - inter_y1) * (inter_x2 - inter_x1)
+                    union_area = cand["area"] + existing["area"] - inter_area
+                    iou = inter_area / max(1.0, union_area)
+                    if iou > 0.15:
+                        existing["box"] = [
+                            min(y1_a, y1_b), min(x1_a, x1_b),
+                            max(y2_a, y2_b), max(x2_a, x2_b)
+                        ]
+                        existing["area"] = (existing["box"][2] - existing["box"][0]) * (existing["box"][3] - existing["box"][1])
+                        matched = True
+                        break
+
+            if not matched:
+                merged.append(cand)
+
+        return merged
 
     def _detect_road_corridors(
         self,
@@ -244,25 +301,61 @@ class GroundingEngine:
     ) -> List[Dict[str, Any]]:
         """
         Identifies vessels/ships as high-contrast compact anomalies over water backgrounds.
+        Strictly requires verified water bodies and rejects false detections over land.
         """
         gray = np.dot(img_np[..., :3], [0.2989, 0.5870, 0.1140])
-        med = np.median(gray)
-        # Reflective hull anomaly
-        anomaly = np.abs(gray - med)
-        thresh = np.percentile(anomaly, 95)
+        # Water zone: high blue relative to red, dark surface (cast to int to prevent overflow)
+        is_water = (img_np[..., 2].astype(int) > img_np[..., 0].astype(int) + 15) & (gray < 110) & (img_np[..., 1].astype(int) < 135)
+        water_ratio = float(np.mean(is_water))
 
+        # If water body is absent or negligible, no marine vessels can be present
+        if water_ratio < 0.015:
+            return []
+
+        # Look for compact anomalous bright/hull pixels strictly inside water zones
+        water_gray = gray[is_water]
+        med_water = np.median(water_gray)
+        ship_contrast = np.abs(gray - med_water)
+        ship_mask = is_water & (ship_contrast > 25.0) & (gray > med_water + 15)
+
+        if np.sum(ship_mask) < 6:
+            return []
+
+        step = 2
+        mask_sub = ship_mask[::step, ::step]
+        sub_h, sub_w = mask_sub.shape
+        sub_visited = np.zeros((sub_h, sub_w), dtype=bool)
         candidates = []
-        box_size = max(16, min(width, height) // 10)
 
-        for y in range(0, height - box_size, box_size):
-            for x in range(0, width - box_size, box_size):
-                patch = anomaly[y:y+box_size, x:x+box_size]
-                if np.mean(patch > thresh) > 0.15:
-                    candidates.append({
-                        "label": "vessel",
-                        "box": [float(y), float(x), float(y + box_size), float(x + box_size)],
-                        "score": 0.84
-                    })
+        for sy in range(sub_h):
+            for sx in range(sub_w):
+                if mask_sub[sy, sx] and not sub_visited[sy, sx]:
+                    queue = [(sy, sx)]
+                    sub_visited[sy, sx] = True
+                    pts = []
+                    while queue:
+                        cy, cx = queue.pop()
+                        pts.append((cy * step, cx * step))
+                        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            ny, nx = cy + dy, cx + dx
+                            if 0 <= ny < sub_h and 0 <= nx < sub_w:
+                                if mask_sub[ny, nx] and not sub_visited[ny, nx]:
+                                    sub_visited[ny, nx] = True
+                                    queue.append((ny, nx))
+
+                    if len(pts) >= 6:
+                        ys = [p[0] for p in pts]
+                        xs = [p[1] for p in pts]
+                        ymin, ymax = min(ys), max(ys)
+                        xmin, xmax = min(xs), max(xs)
+                        bw = xmax - xmin
+                        bh = ymax - ymin
+                        if 8 <= bw <= 140 and 8 <= bh <= 140:
+                            candidates.append({
+                                "label": "vessel",
+                                "box": [float(ymin), float(xmin), float(ymax), float(xmax)],
+                                "score": 0.86
+                            })
 
         return candidates
 

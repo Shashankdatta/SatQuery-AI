@@ -33,7 +33,10 @@ class EvidenceVerifier:
             "cannot tell", "unclear", "insufficient", "not present",
             "cannot determine", "cannot see", "does not appear"
         ]
-        is_negative = any(p in lower_vlm for p in negative_phrases)
+        is_negative = bool(lower_vlm) and any(
+            re.search(r'\b' + re.escape(p) + r'\b', lower_vlm)
+            for p in negative_phrases
+        )
 
         # 1. Negative result: visual evidence is absent
         if is_negative or len(detections) == 0:

@@ -13,6 +13,7 @@ from app.services.query_intent import classify_query, QueryIntent, QueryClassifi
 from app.services.grounding_engine import grounding_engine
 from app.services.spatial_engine import spatial_engine
 from app.services.counting_engine import counting_engine
+from app.services.counting_pipeline import instance_counting_pipeline
 from app.services.evidence_verifier import evidence_verifier
 
 
@@ -247,15 +248,17 @@ class VisionService:
                 status="loading",
             )
 
-        if not raw_vlm_text:
-            raw_vlm_text = "No distinct features identified for this query."
-
-        # Evaluate VLM polarity
-        lower_vlm = raw_vlm_text.lower().strip()
-        vlm_negative = any(
-            re.search(r'\b' + re.escape(w) + r'\b', lower_vlm)
-            for w in ["no", "none", "nothing", "not visible", "not found", "cannot tell", "unclear", "cannot identify"]
-        )
+        # Evaluate VLM polarity if explicit VLM text is available
+        has_vlm_output = bool(raw_vlm_text and raw_vlm_text.strip())
+        if has_vlm_output:
+            lower_vlm = raw_vlm_text.lower().strip()
+            vlm_negative = any(
+                re.search(r'\b' + re.escape(w) + r'\b', lower_vlm)
+                for w in ["no", "none", "nothing", "not visible", "not found", "cannot tell", "unclear", "cannot identify"]
+            )
+        else:
+            raw_vlm_text = ""
+            vlm_negative = False
 
         # 5. Query-Aware Visual Grounding
         detections: List[DetectedObject] = []
@@ -274,18 +277,27 @@ class VisionService:
         final_answer = raw_vlm_text
         is_abstained = vlm_negative or (len(detections) == 0 and classification.intent in (QueryIntent.PRESENCE_ABSENCE, QueryIntent.COUNTING))
 
-        # 6A. COUNTING RESOLUTION
+        # 6A. COUNTING RESOLUTION (Instance-Level Dedicated Counting Pipeline)
         if classification.intent == QueryIntent.COUNTING:
-            count_res = counting_engine.resolve_count(
+            count_res = instance_counting_pipeline.evaluate_general_count(
+                image=image,
                 target_concept=target_concept,
-                detections=detections,
-                vlm_raw_answer=raw_vlm_text,
-                img_width=img_width,
-                img_height=img_height
+                vlm_text=raw_vlm_text
             )
             final_answer = count_res["answer"]
-            is_abstained = (count_res["count"] == 0 and vlm_negative) or (count_res["count"] is None)
-            system_logs.append(f"Counting engine: count={count_res['count']}, is_exact={count_res['is_exact']}.")
+            is_abstained = count_res["abstained"]
+            if not is_abstained and count_res["detections"]:
+                # Use verified instance detections directly
+                detections = count_res["detections"]
+            elif is_abstained:
+                if count_res.get("count") == 0 or count_res.get("count") is None:
+                    detections = []
+                else:
+                    detections = count_res.get("detections", [])
+
+            system_logs.append(
+                f"Instance counting pipeline: count={count_res.get('count')}, reliable={count_res.get('is_reliable')}, abstained={is_abstained}."
+            )
 
         # 6B. SPATIAL & COMPARATIVE RESOLUTION
         elif classification.intent in (QueryIntent.SPATIAL_RELATIONSHIP, QueryIntent.COMPARATIVE):
@@ -331,7 +343,7 @@ class VisionService:
                 final_answer = f"Visual analysis does not detect reliable evidence of {target_concept} in this satellite image."
                 is_abstained = True
             else:
-                final_answer = f"Confirmed presence of {target_concept}s in this imagery. {len(detections)} distinct footprint regions verified with visual grounding."
+                final_answer = f"Confirmed presence of {target_concept} features in this imagery. {len(detections)} distinct footprint region(s) localized."
                 is_abstained = False
 
         else:
@@ -349,9 +361,13 @@ class VisionService:
             intent=classification.intent.value
         )
 
-        if is_abstained:
+        if is_abstained or len(detections) == 0:
+            is_abstained = True
             evidence_found = False
             detections = []  # Purge any spurious boxes on abstention
+        else:
+            is_abstained = False
+            evidence_found = True
 
         # 8. Render Annotated Visual Evidence Image
         evidence_image_b64 = None
