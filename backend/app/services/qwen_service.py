@@ -372,7 +372,6 @@ class QwenVLService:
                 detections=detected_objects,
                 abstained=False,
                 status="answered",
-                answer=answer,
                 evidence_score=None,
                 objects=detected_objects,
                 reason=None,
@@ -403,3 +402,4 @@ class QwenVLService:
 
 # Global singleton instance
 qwen_service = QwenVLService()
+
