@@ -1,4 +1,5 @@
 import io
+import re
 import base64
 from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image, ImageDraw, ImageFont
