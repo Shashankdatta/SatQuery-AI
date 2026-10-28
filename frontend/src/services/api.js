@@ -5,8 +5,7 @@
  */
 
 export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || 'https://honor-proceed-olympus-eleven.trycloudflare.com';
-
+  import.meta.env.VITE_API_BASE_URL || 'https://itchy-lands-kneel.loca.lt';
 /**
  * Checks backend health according to ST-09 requirements:
  * Requires status === 'healthy' && zoomearth === true && grounding === true
