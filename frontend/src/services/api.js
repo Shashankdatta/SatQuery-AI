@@ -1,22 +1,62 @@
 /**
  * SatQuery AI - API Service Layer
  * Centralized service for communicating with the ST-09 FastAPI backend.
- * Base URL is configured via VITE_API_BASE_URL or defaults to the Cloudflare tunnel.
+ * Supports configurable backend URLs via localStorage and environment variables.
  */
 
-export const API_BASE_URL =
+export const DEFAULT_API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'https://honor-proceed-olympus-eleven.trycloudflare.com';
 
 /**
- * Checks backend health according to ST-09 requirements:
- * Requires status === 'healthy' && zoomearth === true && grounding === true
+ * Returns the currently active backend URL.
+ * Checks localStorage first, then falls back to default.
  */
-export async function checkBackendHealth() {
+export function getApiBaseUrl() {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const custom = window.localStorage.getItem('satquery_backend_url');
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/+$/, '');
+    }
+  }
+  return DEFAULT_API_BASE_URL.replace(/\/+$/, '');
+}
+
+/**
+ * Updates the backend URL in localStorage and broadcasts a change event.
+ */
+export function setApiBaseUrl(newUrl) {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const cleanUrl = (newUrl || '').trim().replace(/\/+$/, '');
+    if (cleanUrl) {
+      window.localStorage.setItem('satquery_backend_url', cleanUrl);
+    } else {
+      window.localStorage.removeItem('satquery_backend_url');
+    }
+    window.dispatchEvent(new CustomEvent('satquery_backend_url_change', { detail: cleanUrl }));
+  }
+}
+
+/**
+ * Resets the backend URL to the application default.
+ */
+export function resetApiBaseUrl() {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.removeItem('satquery_backend_url');
+    window.dispatchEvent(new CustomEvent('satquery_backend_url_change', { detail: DEFAULT_API_BASE_URL }));
+  }
+}
+
+/**
+ * Probes the backend /health endpoint.
+ * Accepts either the active URL or a custom URL for testing.
+ */
+export async function checkBackendHealth(customUrl = null) {
+  const baseUrl = (customUrl || getApiBaseUrl()).replace(/\/+$/, '');
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 6000);
+  const timeoutId = setTimeout(() => controller.abort(), 7000);
 
   try {
-    const response = await fetch(`${API_BASE_URL}/health`, {
+    const response = await fetch(`${baseUrl}/health`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
       signal: controller.signal,
@@ -25,34 +65,45 @@ export async function checkBackendHealth() {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      return { isConnected: false, error: `HTTP ${response.status}` };
+      return {
+        isConnected: false,
+        url: baseUrl,
+        error: `Server returned HTTP ${response.status} (${response.statusText || 'Error'})`,
+      };
     }
 
     const data = await response.json();
+    // Support both Cloudflare remote ZoomEarth backend and local FastAPI backend
     const isHealthy =
-      data?.status === 'healthy' &&
-      data?.zoomearth === true &&
-      data?.grounding === true;
+      (data?.status === 'healthy' && data?.zoomearth === true && data?.grounding === true) ||
+      data?.status === 'healthy' ||
+      data?.service?.includes('SatQuery');
 
     return {
-      isConnected: isHealthy,
+      isConnected: Boolean(isHealthy),
+      url: baseUrl,
       data,
     };
   } catch (err) {
     clearTimeout(timeoutId);
+    let errorMsg = err.message;
+    if (err.name === 'AbortError') {
+      errorMsg = 'Connection timed out (host took too long to respond)';
+    } else if (err.message && err.message.includes('Failed to fetch')) {
+      errorMsg = 'Could not resolve or reach backend host (tunnel may be offline or URL changed)';
+    }
+
     return {
       isConnected: false,
-      error: err.name === 'AbortError' ? 'Connection timed out' : err.message,
+      url: baseUrl,
+      error: errorMsg,
     };
   }
 }
 
 /**
- * Sends satellite image and natural-language query to the /analyze endpoint.
- *
- * @param {File} imageFile - Uploaded RGB satellite image (PNG, JPG, TIFF)
- * @param {string} question - Natural language user question
- * @returns {Promise<Object>} Backend response with answer, detections, evidence_image, abstained
+ * Sends satellite image and question to POST /analyze.
+ * Automatically normalizes output across backend variants.
  */
 export async function analyzeRemoteSensingImage(imageFile, question) {
   if (!imageFile) {
@@ -63,19 +114,20 @@ export async function analyzeRemoteSensingImage(imageFile, question) {
     throw new Error('Please enter a question to analyze.');
   }
 
+  const baseUrl = getApiBaseUrl();
   const formData = new FormData();
   formData.append('image', imageFile);
   formData.append('question', question.trim());
 
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}/analyze`, {
+    response = await fetch(`${baseUrl}/analyze`, {
       method: 'POST',
       body: formData,
     });
   } catch (networkErr) {
     throw new Error(
-      'Unable to connect to the analysis backend. Please check network connectivity and backend status.'
+      `Unable to reach backend at ${baseUrl}. The tunnel URL may have expired or the server is offline. Click "Configure Backend" in the top bar to update the endpoint URL.`
     );
   }
 
@@ -93,6 +145,33 @@ export async function analyzeRemoteSensingImage(imageFile, question) {
     throw new Error(message);
   }
 
-  const result = await response.json();
-  return result;
+  const raw = await response.json();
+
+  // Normalize detections & objects
+  const detections = Array.isArray(raw.detections)
+    ? raw.detections
+    : Array.isArray(raw.objects)
+    ? raw.objects.map((obj) => ({
+        label: obj.label,
+        score: obj.confidence ?? obj.score ?? null,
+        box: obj.box,
+      }))
+    : [];
+
+  const isAbstained =
+    raw.abstained === true ||
+    raw.status === 'abstained' ||
+    Boolean(raw.reason && !raw.answer);
+
+  return {
+    question: raw.question || question.trim(),
+    answer: raw.answer || raw.reason || 'No text answer returned.',
+    targets: Array.isArray(raw.targets) ? raw.targets : [],
+    evidence_found: raw.evidence_found !== undefined ? raw.evidence_found : detections.length > 0,
+    detections,
+    abstained: isAbstained,
+    evidence_image: raw.evidence_image || null,
+    reason: raw.reason || null,
+    status: raw.status || (isAbstained ? 'abstained' : 'answered'),
+  };
 }

@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import ImageViewer from './components/ImageViewer';
 import AskSatQuery from './components/AskSatQuery';
 import ResultsDisplay from './components/ResultsDisplay';
 import QueryInspector from './components/QueryInspector';
-import { checkBackendHealth, analyzeRemoteSensingImage } from './services/api';
+import BackendSettingsModal from './components/BackendSettingsModal';
+import { checkBackendHealth, analyzeRemoteSensingImage, getApiBaseUrl } from './services/api';
 
 export default function App() {
   // Image State (User's actual uploaded image)
@@ -21,26 +22,34 @@ export default function App() {
   // Real Backend Health State
   const [backendConnected, setBackendConnected] = useState(false);
   const [isCheckingBackend, setIsCheckingBackend] = useState(true);
+  const [activeBackendUrl, setActiveBackendUrl] = useState(getApiBaseUrl());
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
   // Poll backend health status
-  useEffect(() => {
-    let isMounted = true;
-
-    async function verifyHealth() {
-      const res = await checkBackendHealth();
-      if (isMounted) {
-        setBackendConnected(res.isConnected);
-        setIsCheckingBackend(false);
-      }
-    }
-
-    verifyHealth();
-    const interval = setInterval(verifyHealth, 6000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
+  const verifyHealth = useCallback(async () => {
+    setIsCheckingBackend(true);
+    const res = await checkBackendHealth();
+    setBackendConnected(res.isConnected);
+    setActiveBackendUrl(res.url);
+    setIsCheckingBackend(false);
   }, []);
+
+  useEffect(() => {
+    verifyHealth();
+    const interval = setInterval(verifyHealth, 8000);
+
+    const handleUrlChange = () => {
+      setActiveBackendUrl(getApiBaseUrl());
+      verifyHealth();
+    };
+
+    window.addEventListener('satquery_backend_url_change', handleUrlChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('satquery_backend_url_change', handleUrlChange);
+    };
+  }, [verifyHealth]);
 
   // Handle User Upload of Satellite Image
   const handleImageSelected = (e) => {
@@ -83,6 +92,14 @@ export default function App() {
       return;
     }
 
+    if (!backendConnected) {
+      setErrorMessage(
+        `Backend is currently unavailable at ${activeBackendUrl}. Please click "Configure Backend" in the top bar to update the endpoint URL.`
+      );
+      setIsConfigModalOpen(true);
+      return;
+    }
+
     setStatus('analyzing');
     setErrorMessage(null);
 
@@ -103,10 +120,33 @@ export default function App() {
       <Header
         backendConnected={backendConnected}
         isCheckingBackend={isCheckingBackend}
+        onRecheckBackend={verifyHealth}
       />
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6">
+        {/* Offline Warning Banner with One-Click Configure */}
+        {!backendConnected && !isCheckingBackend && (
+          <div className="bg-amber-950/40 border border-amber-600/50 rounded-lg p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+              <span>
+                <strong>Backend Unavailable:</strong> Could not connect to{' '}
+                <code className="bg-amber-900/40 px-1.5 py-0.5 rounded font-mono text-amber-100">
+                  {activeBackendUrl}
+                </code>
+                . If your Cloudflare tunnel was restarted or you are running locally, update your endpoint URL.
+              </span>
+            </div>
+            <button
+              onClick={() => setIsConfigModalOpen(true)}
+              className="px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-semibold whitespace-nowrap self-start sm:self-auto transition shadow-sm"
+            >
+              Configure Endpoint
+            </button>
+          </div>
+        )}
+
         {/* Architecture Note */}
         <div className="bg-[#0c1220] border border-slate-800/80 rounded-lg px-4 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-400">
           <div className="flex items-center gap-2">
@@ -115,8 +155,8 @@ export default function App() {
               <strong>Pipeline:</strong> Remote-Sensing VLM (ZoomEarth-3B) + Visual Grounding + Evidence Verification
             </span>
           </div>
-          <span className="text-[11px] text-slate-500">
-            Current mode: RGB Imagery
+          <span className="text-[11px] text-slate-500 font-mono">
+            Endpoint: {activeBackendUrl}
           </span>
         </div>
 
@@ -174,6 +214,13 @@ export default function App() {
           <QueryInspector result={analysisResult} />
         </div>
       </main>
+
+      {/* Backend Settings Dialog */}
+      <BackendSettingsModal
+        isOpen={isConfigModalOpen}
+        onClose={() => setIsConfigModalOpen(false)}
+        onUrlUpdated={verifyHealth}
+      />
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 bg-[#070b14] py-4 px-6 text-center text-xs text-slate-500">

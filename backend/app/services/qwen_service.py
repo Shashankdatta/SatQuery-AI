@@ -334,8 +334,13 @@ class QwenVLService:
 
             if is_abstained:
                 return AnalysisResponse(
-                    status="abstained",
+                    question=question,
                     answer=answer,
+                    targets=["structure", "object"],
+                    evidence_found=False,
+                    detections=detected_objects,
+                    abstained=True,
+                    status="abstained",
                     evidence_score=None,
                     objects=detected_objects,
                     reason="The model determined that the image does not provide sufficient visual evidence to answer this question reliably.",
@@ -360,6 +365,12 @@ class QwenVLService:
                 )
 
             return AnalysisResponse(
+                question=question,
+                answer=answer,
+                targets=["structure", "object"],
+                evidence_found=len(detected_objects) > 0,
+                detections=detected_objects,
+                abstained=False,
                 status="answered",
                 answer=answer,
                 evidence_score=None,
