@@ -17,7 +17,10 @@ export async function checkBackendHealth() {
   try {
     const response = await fetch(`${API_BASE_URL}/health`, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: {
+  Accept: 'application/json',
+  'bypass-tunnel-reminder': '1',
+},
       signal: controller.signal,
     });
 
@@ -67,10 +70,13 @@ export async function analyzeRemoteSensingImage(imageFile, question) {
 
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}/analyze`, {
-      method: 'POST',
-      body: formData,
-    });
+response = await fetch(`${API_BASE_URL}/analyze`, {
+  method: 'POST',
+  headers: {
+    'bypass-tunnel-reminder': '1',
+  },
+  body: formData,
+});
   } catch (networkErr) {
     throw new Error(
       'Unable to connect to the analysis backend. Please check network connectivity and backend status.'
