@@ -48,6 +48,8 @@ models/checkpoints/
 .vscode/
 .idea/
 *.swp
+cloudflared.exe
+*.exe
 .DS_Store
 
 # Testing & Coverage

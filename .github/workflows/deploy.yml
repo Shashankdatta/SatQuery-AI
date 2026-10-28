@@ -39,7 +39,7 @@ jobs:
       - name: Build frontend
         working-directory: ./frontend
         env:
-          VITE_API_BASE_URL: https://itchy-lands-kneel.loca.lt
+          VITE_API_BASE_URL: https://mild-overseas-architecture-sally.trycloudflare.com
         run: npm run build
 
       - name: Setup Pages

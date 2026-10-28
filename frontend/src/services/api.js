@@ -5,7 +5,7 @@
  */
 
 export const DEFAULT_API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || 'https://itchy-lands-kneel.loca.lt';
+  import.meta.env.VITE_API_BASE_URL || 'https://mild-overseas-architecture-sally.trycloudflare.com';
 
 export const API_BASE_URL = DEFAULT_API_BASE_URL;
 
@@ -16,7 +16,7 @@ export const API_BASE_URL = DEFAULT_API_BASE_URL;
 export function getApiBaseUrl() {
   if (typeof window !== 'undefined' && window.localStorage) {
     const custom = window.localStorage.getItem('satquery_backend_url');
-    if (custom && custom.trim()) {
+    if (custom && custom.trim() && !custom.includes('loca.lt')) {
       return custom.trim().replace(/\/+$/, '');
     }
   }

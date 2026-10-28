@@ -1,27 +1,24 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
-from typing import Optional, Dict, Any
+from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException, status
+from typing import Dict, Any, Optional
 
 from app.schemas.response import AnalysisResponse
-from app.services.qwen_service import qwen_service
+from app.services.vision_service import vision_service
 
 router = APIRouter()
 
-@router.get("/model/status", summary="Get Qwen2.5-VL-3B-Instruct model loading status")
+@router.get("/model/status", summary="Get model loading status")
 async def get_model_status() -> Dict[str, Any]:
-    """
-    Returns the real-time loading/ready state of Qwen2.5-VL-3B-Instruct.
-    States: 'unloaded', 'loading', 'ready', 'error'.
-    """
-    return qwen_service.get_status()
+    return vision_service.get_status()
 
-@router.post("/analyze", response_model=AnalysisResponse, summary="Analyze image with Qwen2.5-VL-3B-Instruct")
+@router.post("/analyze", response_model=AnalysisResponse, summary="Analyze image with Vision-Language Assistant")
 async def analyze_image(
-    image: UploadFile = File(..., description="Uploaded image file (JPG, PNG, TIFF)"),
-    question: str = Form(..., description="Natural language question about the image")
+    image: UploadFile = File(..., description="Uploaded satellite image file (JPG, PNG, TIFF)"),
+    question: str = Form(..., description="Natural language question about the image"),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key", description="Optional Google Gemini API key")
 ) -> AnalysisResponse:
     """
-    Core vision-language query endpoint powered by Qwen2.5-VL-3B-Instruct.
-    Sends the user's uploaded image and question to the model and returns the generated answer.
+    Core vision-language query endpoint.
+    Processes the uploaded satellite image and question and returns the grounded answer.
     """
     if not image or not image.filename:
         raise HTTPException(
@@ -43,10 +40,11 @@ async def analyze_image(
                 detail="Uploaded image file is empty."
             )
 
-        response = await qwen_service.analyze(
+        response = await vision_service.analyze(
             image_bytes=image_bytes,
             filename=image.filename or "image.png",
-            question=question.strip()
+            question=question.strip(),
+            api_key=x_api_key
         )
         return response
 
