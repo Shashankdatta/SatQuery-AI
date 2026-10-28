@@ -20,6 +20,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,7 +39,7 @@ jobs:
       - name: Build frontend
         working-directory: ./frontend
         env:
-          VITE_API_BASE_URL: https://honor-proceed-olympus-eleven.trycloudflare.com
+          VITE_API_BASE_URL: https://itchy-lands-kneel.loca.lt
         run: npm run build
 
       - name: Setup Pages
@@ -47,7 +48,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './frontend/dist'
+          path: ./frontend/dist
 
       - name: Deploy to GitHub Pages
         id: deployment

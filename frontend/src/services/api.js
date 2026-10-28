@@ -5,7 +5,9 @@
  */
 
 export const DEFAULT_API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || 'https://honor-proceed-olympus-eleven.trycloudflare.com';
+  import.meta.env.VITE_API_BASE_URL || 'https://itchy-lands-kneel.loca.lt';
+
+export const API_BASE_URL = DEFAULT_API_BASE_URL;
 
 /**
  * Returns the currently active backend URL.
@@ -58,7 +60,10 @@ export async function checkBackendHealth(customUrl = null) {
   try {
     const response = await fetch(`${baseUrl}/health`, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        'Bypass-Tunnel-Reminder': 'true',
+      },
       signal: controller.signal,
     });
 
@@ -73,7 +78,7 @@ export async function checkBackendHealth(customUrl = null) {
     }
 
     const data = await response.json();
-    // Support both Cloudflare remote ZoomEarth backend and local FastAPI backend
+    // Support both Cloudflare/Localtunnel remote ZoomEarth backend and local FastAPI backend
     const isHealthy =
       (data?.status === 'healthy' && data?.zoomearth === true && data?.grounding === true) ||
       data?.status === 'healthy' ||
@@ -123,6 +128,9 @@ export async function analyzeRemoteSensingImage(imageFile, question) {
   try {
     response = await fetch(`${baseUrl}/analyze`, {
       method: 'POST',
+      headers: {
+        'Bypass-Tunnel-Reminder': 'true',
+      },
       body: formData,
     });
   } catch (networkErr) {
