@@ -29,9 +29,8 @@ export async function checkBackendHealth() {
 
     const data = await response.json();
     const isHealthy =
-      data?.status === 'healthy' &&
-      data?.zoomearth === true &&
-      data?.grounding === true;
+  (data?.status === 'ok' || data?.status === 'healthy') &&
+  data?.zoomearth === true;
 
     return {
       isConnected: isHealthy,
