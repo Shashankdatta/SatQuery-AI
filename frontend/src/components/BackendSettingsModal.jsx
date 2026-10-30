@@ -17,6 +17,7 @@ export default function BackendSettingsModal({ isOpen, onClose, onUrlUpdated }) 
   if (!isOpen) return null;
 
   const handleTest = async () => {
+    if (!urlInput.trim()) return;
     setIsTesting(true);
     setTestResult(null);
 
@@ -80,12 +81,12 @@ export default function BackendSettingsModal({ isOpen, onClose, onUrlUpdated }) 
                 setUrlInput(e.target.value);
                 setTestResult(null);
               }}
-              placeholder="Leave blank for same-origin (Vercel) or http://127.0.0.1:8000"
+              placeholder="https://your-tunnel.trycloudflare.com or http://127.0.0.1:8000"
               className="flex-1 bg-[#070b14] border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2 text-xs font-mono text-slate-100 placeholder-slate-500 focus:outline-none transition"
             />
             <button
               onClick={handleTest}
-              disabled={isTesting}
+              disabled={isTesting || !urlInput.trim()}
               className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 transition flex items-center gap-1.5"
             >
               {isTesting ? (
@@ -114,7 +115,7 @@ export default function BackendSettingsModal({ isOpen, onClose, onUrlUpdated }) 
               onClick={handleReset}
               className="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition"
             >
-              Default (Same-Origin / Cloud)
+              Default Tunnel
             </button>
           </div>
 
@@ -138,7 +139,7 @@ export default function BackendSettingsModal({ isOpen, onClose, onUrlUpdated }) 
                 </span>
                 <span className="text-[11px] opacity-90 block mt-0.5">
                   {testResult.isConnected
-                    ? `Backend responded 200 OK from ${testResult.url || 'same-origin'}/health`
+                    ? `Backend responded 200 OK from ${testResult.url}/health`
                     : testResult.error}
                 </span>
               </div>
@@ -148,9 +149,9 @@ export default function BackendSettingsModal({ isOpen, onClose, onUrlUpdated }) 
           {/* Helpful Tunnel Note */}
           <div className="bg-[#070b14] border border-slate-800/80 rounded-lg p-3 text-[11px] text-slate-400 leading-relaxed">
             <span className="font-semibold text-slate-300 block mb-1">
-              Note on Deployment & Endpoints:
+              Note on Cloudflare Tunnels:
             </span>
-            When deployed on Vercel as multiple services, frontend requests are routed seamlessly to the FastAPI backend service via Vercel rewrites. You can also specify an external tunnel (e.g. Cloudflare) or local server anytime.
+            Cloudflare Quick Tunnels (<code className="text-slate-300">*.trycloudflare.com</code>) generate a fresh URL each time the tunnel process restarts. Whenever you relaunch your backend on Google Colab, Kaggle, or a cloud VM, paste the new URL here and click <strong className="text-white">Save & Connect</strong>.
           </div>
         </div>
 
@@ -164,6 +165,7 @@ export default function BackendSettingsModal({ isOpen, onClose, onUrlUpdated }) 
           </button>
           <button
             onClick={handleSave}
+            disabled={!urlInput.trim()}
             className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-sm transition"
           >
             Save & Connect
