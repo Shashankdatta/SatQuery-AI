@@ -100,7 +100,7 @@ flowchart TD
 
 ### Step 2: (Optional) Run the Local FastAPI Backend
 
-The frontend connects directly to the live backend URL (`https://honor-proceed-olympus-eleven.trycloudflare.com`). To run the backend locally:
+The frontend connects directly to the permanent 24/7 cloud backend URL (`https://satquery-ai-5njv.onrender.com`). To run the backend locally:
 
 1. Navigate to the backend directory:
    ```bash
