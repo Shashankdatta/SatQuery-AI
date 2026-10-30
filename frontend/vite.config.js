@@ -9,12 +9,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/health': {
-        target: 'https://honor-proceed-olympus-eleven.trycloudflare.com',
+        target: 'https://accuracy-participate-updating-preceding.trycloudflare.com',
         changeOrigin: true,
         secure: false,
       },
       '/analyze': {
-        target: 'https://honor-proceed-olympus-eleven.trycloudflare.com',
+        target: 'https://accuracy-participate-updating-preceding.trycloudflare.com',
         changeOrigin: true,
         secure: false,
       },
