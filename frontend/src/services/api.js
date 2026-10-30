@@ -1,12 +1,47 @@
 /**
  * SatQuery AI - API Service Layer
  * Centralized service for communicating with the ST-09 FastAPI backend.
- * Supports configurable backend URLs via localStorage and environment variables.
+ * Supports Vercel Services multi-service binding, same-origin relative rewrites,
+ * configurable backend URLs via localStorage, and environment variables.
  */
 
-export const DEFAULT_API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || 'https://satquery-ai-5njv.onrender.com';
+// 1. Check for runtime environment binding (injected by Vercel Services via BACKEND_URL)
+const runtimeBindingUrl =
+  typeof process !== 'undefined' && process?.env?.BACKEND_URL
+    ? process.env.BACKEND_URL
+    : null;
 
+// 2. Check for build-time Vite environment variable
+const viteEnvUrl =
+  typeof import.meta !== 'undefined' && import.meta?.env?.VITE_API_BASE_URL
+    ? import.meta.env.VITE_API_BASE_URL
+    : null;
+
+/**
+ * Resolves default backend base URL:
+ * 1. Runtime binding variable BACKEND_URL (injected by Vercel Services)
+ * 2. VITE_API_BASE_URL environment variable
+ * 3. Relative URL ("") on Vercel (*.vercel.app) or local development to leverage Vercel rewrites & Vite proxy
+ * 4. Fallback to live Render cloud backend for standalone external deployments (e.g. GitHub Pages)
+ */
+function resolveDefaultApiBaseUrl() {
+  if (runtimeBindingUrl) {
+    return runtimeBindingUrl.replace(/\/+$/, '');
+  }
+  if (viteEnvUrl) {
+    return viteEnvUrl.replace(/\/+$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    const hostname = window.location.hostname;
+    // On Vercel (*.vercel.app) or local dev, use same-origin relative rewrites
+    if (hostname.endsWith('.vercel.app') || hostname === 'localhost' || hostname === '127.0.0.1') {
+      return '';
+    }
+  }
+  return 'https://satquery-ai-5njv.onrender.com';
+}
+
+export const DEFAULT_API_BASE_URL = resolveDefaultApiBaseUrl();
 export const API_BASE_URL = DEFAULT_API_BASE_URL;
 
 /**
@@ -30,12 +65,12 @@ export function getApiBaseUrl() {
       const isObsolete = OBSOLETE_ENDPOINTS.some((pattern) => clean.includes(pattern));
       if (isObsolete) {
         window.localStorage.removeItem('satquery_backend_url');
-        return DEFAULT_API_BASE_URL.replace(/\/+$/, '');
+        return DEFAULT_API_BASE_URL;
       }
       return clean;
     }
   }
-  return DEFAULT_API_BASE_URL.replace(/\/+$/, '');
+  return DEFAULT_API_BASE_URL;
 }
 
 /**
@@ -68,11 +103,12 @@ export function resetApiBaseUrl() {
  */
 async function probeHealth(url, timeoutMs = 35000) {
   const baseUrl = (url || '').replace(/\/+$/, '');
+  const endpoint = baseUrl ? `${baseUrl}/health` : '/health';
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${baseUrl}/health`, {
+    const response = await fetch(endpoint, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
@@ -86,7 +122,7 @@ async function probeHealth(url, timeoutMs = 35000) {
     if (!response.ok) {
       return {
         isConnected: false,
-        url: baseUrl,
+        url: baseUrl || 'same-origin',
         error: `Server returned HTTP ${response.status} (${response.statusText || 'Error'})`,
       };
     }
@@ -99,7 +135,7 @@ async function probeHealth(url, timeoutMs = 35000) {
 
     return {
       isConnected: Boolean(isHealthy),
-      url: baseUrl,
+      url: baseUrl || 'same-origin',
       data,
     };
   } catch (err) {
@@ -108,12 +144,12 @@ async function probeHealth(url, timeoutMs = 35000) {
     if (err.name === 'AbortError') {
       errorMsg = 'Connection timed out (host took too long to respond)';
     } else if (err.message && err.message.includes('Failed to fetch')) {
-      errorMsg = 'Could not resolve or reach backend host (tunnel may be offline or URL changed)';
+      errorMsg = 'Could not resolve or reach backend host (server may be offline or URL changed)';
     }
 
     return {
       isConnected: false,
-      url: baseUrl,
+      url: baseUrl || 'same-origin',
       error: errorMsg,
     };
   }
@@ -125,8 +161,8 @@ async function probeHealth(url, timeoutMs = 35000) {
  * Automatically falls back to DEFAULT_API_BASE_URL if a saved custom URL is unreachable.
  */
 export async function checkBackendHealth(customUrl = null) {
-  const defaultUrl = DEFAULT_API_BASE_URL.replace(/\/+$/, '');
-  const targetUrl = (customUrl || getApiBaseUrl()).replace(/\/+$/, '');
+  const defaultUrl = (DEFAULT_API_BASE_URL || '').replace(/\/+$/, '');
+  const targetUrl = (customUrl !== null && customUrl !== undefined ? customUrl : getApiBaseUrl()).replace(/\/+$/, '');
 
   // 1. Try the targeted URL
   const primaryResult = await probeHealth(targetUrl);
@@ -134,8 +170,8 @@ export async function checkBackendHealth(customUrl = null) {
     return primaryResult;
   }
 
-  // 2. If a saved custom URL failed, automatically attempt the default live URL
-  if (!customUrl && targetUrl !== defaultUrl) {
+  // 2. If a saved custom URL failed, automatically attempt the default endpoint
+  if (customUrl === null && targetUrl !== defaultUrl) {
     const fallbackResult = await probeHealth(defaultUrl);
     if (fallbackResult.isConnected) {
       // Clear out the unreachable custom URL so the client remains connected
@@ -163,15 +199,18 @@ export async function analyzeRemoteSensingImage(imageFile, question) {
     throw new Error('Please enter a question to analyze.');
   }
 
-  const defaultUrl = DEFAULT_API_BASE_URL.replace(/\/+$/, '');
+  const defaultUrl = (DEFAULT_API_BASE_URL || '').replace(/\/+$/, '');
   let baseUrl = getApiBaseUrl();
+  const targetEndpoint = baseUrl ? `${baseUrl}/analyze` : '/analyze';
+  const fallbackEndpoint = defaultUrl ? `${defaultUrl}/analyze` : '/analyze';
+
   const formData = new FormData();
   formData.append('image', imageFile);
   formData.append('question', question.trim());
 
   let response;
   try {
-    response = await fetch(`${baseUrl}/analyze`, {
+    response = await fetch(targetEndpoint, {
       method: 'POST',
       headers: {
         'Bypass-Tunnel-Reminder': 'true',
@@ -179,10 +218,10 @@ export async function analyzeRemoteSensingImage(imageFile, question) {
       body: formData,
     });
   } catch (networkErr) {
-    // If custom URL failed, attempt fallback to default live endpoint
+    // If custom URL failed, attempt fallback to default endpoint
     if (baseUrl !== defaultUrl) {
       try {
-        response = await fetch(`${defaultUrl}/analyze`, {
+        response = await fetch(fallbackEndpoint, {
           method: 'POST',
           headers: {
             'Bypass-Tunnel-Reminder': 'true',
@@ -196,12 +235,12 @@ export async function analyzeRemoteSensingImage(imageFile, question) {
         }
       } catch (_) {
         throw new Error(
-          `Unable to reach backend at ${baseUrl} or default ${defaultUrl}. The tunnel URL may have expired or the server is offline.`
+          `Unable to reach backend at ${baseUrl || 'same-origin'} or default ${defaultUrl || 'same-origin'}. The server may be starting up or offline.`
         );
       }
     } else {
       throw new Error(
-        `Unable to reach backend at ${baseUrl}. The tunnel URL may have expired or the server is offline. Click "Configure Backend" in the top bar to update the endpoint URL.`
+        `Unable to reach backend at ${baseUrl || 'same-origin'}. The server may be starting up or offline. Click "Configure Backend" in the top bar to update the endpoint URL.`
       );
     }
   }

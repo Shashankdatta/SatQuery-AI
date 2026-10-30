@@ -1,22 +1,27 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Backend URL bound by Vercel Services or local fallback
+const backendTarget = process.env.BACKEND_URL || 'http://127.0.0.1:8000';
+
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: './',
+  base: '/',
   plugins: [react()],
   server: {
     port: 5173,
     proxy: {
-      '/health': {
-        target: 'https://satquery-ai-5njv.onrender.com',
+      '/api': {
+        target: backendTarget,
         changeOrigin: true,
-        secure: false,
+      },
+      '/health': {
+        target: backendTarget,
+        changeOrigin: true,
       },
       '/analyze': {
-        target: 'https://satquery-ai-5njv.onrender.com',
+        target: backendTarget,
         changeOrigin: true,
-        secure: false,
       },
     },
   },
