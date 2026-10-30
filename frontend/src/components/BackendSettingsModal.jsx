@@ -41,6 +41,7 @@ export default function BackendSettingsModal({ isOpen, onClose, onUrlUpdated }) 
   };
 
   const handleReset = () => {
+    resetApiBaseUrl();
     setUrlInput(DEFAULT_API_BASE_URL);
     setTestResult(null);
   };

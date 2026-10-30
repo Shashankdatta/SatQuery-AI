@@ -13,11 +13,24 @@ export const API_BASE_URL = DEFAULT_API_BASE_URL;
  * Returns the currently active backend URL.
  * Checks localStorage first, then falls back to default.
  */
+const OBSOLETE_ENDPOINTS = [
+  'loca.lt',
+  'honor-proceed-olympus-eleven',
+  'mild-overseas-architecture-sally',
+  'itchy-lands-kneel',
+];
+
 export function getApiBaseUrl() {
   if (typeof window !== 'undefined' && window.localStorage) {
     const custom = window.localStorage.getItem('satquery_backend_url');
-    if (custom && custom.trim() && !custom.includes('loca.lt')) {
-      return custom.trim().replace(/\/+$/, '');
+    if (custom && custom.trim()) {
+      const clean = custom.trim().replace(/\/+$/, '');
+      const isObsolete = OBSOLETE_ENDPOINTS.some((pattern) => clean.includes(pattern));
+      if (isObsolete) {
+        window.localStorage.removeItem('satquery_backend_url');
+        return DEFAULT_API_BASE_URL.replace(/\/+$/, '');
+      }
+      return clean;
     }
   }
   return DEFAULT_API_BASE_URL.replace(/\/+$/, '');
@@ -29,12 +42,12 @@ export function getApiBaseUrl() {
 export function setApiBaseUrl(newUrl) {
   if (typeof window !== 'undefined' && window.localStorage) {
     const cleanUrl = (newUrl || '').trim().replace(/\/+$/, '');
-    if (cleanUrl) {
+    if (cleanUrl && cleanUrl !== DEFAULT_API_BASE_URL.replace(/\/+$/, '')) {
       window.localStorage.setItem('satquery_backend_url', cleanUrl);
     } else {
       window.localStorage.removeItem('satquery_backend_url');
     }
-    window.dispatchEvent(new CustomEvent('satquery_backend_url_change', { detail: cleanUrl }));
+    window.dispatchEvent(new CustomEvent('satquery_backend_url_change', { detail: cleanUrl || DEFAULT_API_BASE_URL }));
   }
 }
 
@@ -49,13 +62,12 @@ export function resetApiBaseUrl() {
 }
 
 /**
- * Probes the backend /health endpoint.
- * Accepts either the active URL or a custom URL for testing.
+ * Internal probe helper for /health endpoint.
  */
-export async function checkBackendHealth(customUrl = null) {
-  const baseUrl = (customUrl || getApiBaseUrl()).replace(/\/+$/, '');
+async function probeHealth(url, timeoutMs = 10000) {
+  const baseUrl = (url || '').replace(/\/+$/, '');
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 7000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(`${baseUrl}/health`, {
@@ -78,7 +90,6 @@ export async function checkBackendHealth(customUrl = null) {
     }
 
     const data = await response.json();
-    // Support both Cloudflare/Localtunnel remote ZoomEarth backend and local FastAPI backend
     const isHealthy =
       (data?.status === 'healthy' && data?.zoomearth === true && data?.grounding === true) ||
       data?.status === 'healthy' ||
@@ -107,8 +118,39 @@ export async function checkBackendHealth(customUrl = null) {
 }
 
 /**
+ * Probes the backend /health endpoint.
+ * Accepts either the active URL or a custom URL for testing.
+ * Automatically falls back to DEFAULT_API_BASE_URL if a saved custom URL is unreachable.
+ */
+export async function checkBackendHealth(customUrl = null) {
+  const defaultUrl = DEFAULT_API_BASE_URL.replace(/\/+$/, '');
+  const targetUrl = (customUrl || getApiBaseUrl()).replace(/\/+$/, '');
+
+  // 1. Try the targeted URL
+  const primaryResult = await probeHealth(targetUrl);
+  if (primaryResult.isConnected) {
+    return primaryResult;
+  }
+
+  // 2. If a saved custom URL failed, automatically attempt the default live URL
+  if (!customUrl && targetUrl !== defaultUrl) {
+    const fallbackResult = await probeHealth(defaultUrl);
+    if (fallbackResult.isConnected) {
+      // Clear out the unreachable custom URL so the client remains connected
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem('satquery_backend_url');
+        window.dispatchEvent(new CustomEvent('satquery_backend_url_change', { detail: defaultUrl }));
+      }
+      return fallbackResult;
+    }
+  }
+
+  return primaryResult;
+}
+
+/**
  * Sends satellite image and question to POST /analyze.
- * Automatically normalizes output across backend variants.
+ * Automatically retries against default endpoint if a custom URL is unreachable.
  */
 export async function analyzeRemoteSensingImage(imageFile, question) {
   if (!imageFile) {
@@ -119,7 +161,8 @@ export async function analyzeRemoteSensingImage(imageFile, question) {
     throw new Error('Please enter a question to analyze.');
   }
 
-  const baseUrl = getApiBaseUrl();
+  const defaultUrl = DEFAULT_API_BASE_URL.replace(/\/+$/, '');
+  let baseUrl = getApiBaseUrl();
   const formData = new FormData();
   formData.append('image', imageFile);
   formData.append('question', question.trim());
@@ -134,9 +177,31 @@ export async function analyzeRemoteSensingImage(imageFile, question) {
       body: formData,
     });
   } catch (networkErr) {
-    throw new Error(
-      `Unable to reach backend at ${baseUrl}. The tunnel URL may have expired or the server is offline. Click "Configure Backend" in the top bar to update the endpoint URL.`
-    );
+    // If custom URL failed, attempt fallback to default live endpoint
+    if (baseUrl !== defaultUrl) {
+      try {
+        response = await fetch(`${defaultUrl}/analyze`, {
+          method: 'POST',
+          headers: {
+            'Bypass-Tunnel-Reminder': 'true',
+          },
+          body: formData,
+        });
+        baseUrl = defaultUrl;
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.removeItem('satquery_backend_url');
+          window.dispatchEvent(new CustomEvent('satquery_backend_url_change', { detail: defaultUrl }));
+        }
+      } catch (_) {
+        throw new Error(
+          `Unable to reach backend at ${baseUrl} or default ${defaultUrl}. The tunnel URL may have expired or the server is offline.`
+        );
+      }
+    } else {
+      throw new Error(
+        `Unable to reach backend at ${baseUrl}. The tunnel URL may have expired or the server is offline. Click "Configure Backend" in the top bar to update the endpoint URL.`
+      );
+    }
   }
 
   if (!response.ok) {

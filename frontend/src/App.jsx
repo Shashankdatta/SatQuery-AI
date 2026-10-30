@@ -120,6 +120,7 @@ export default function App() {
       <Header
         backendConnected={backendConnected}
         isCheckingBackend={isCheckingBackend}
+        activeBackendUrl={activeBackendUrl}
         onRecheckBackend={verifyHealth}
       />
 

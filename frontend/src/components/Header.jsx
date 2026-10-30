@@ -3,9 +3,9 @@ import { SatelliteIcon } from './Icons';
 import { getApiBaseUrl } from '../services/api';
 import BackendSettingsModal from './BackendSettingsModal';
 
-export default function Header({ backendConnected = false, isCheckingBackend = false, onRecheckBackend }) {
+export default function Header({ backendConnected = false, isCheckingBackend = false, activeBackendUrl = null, onRecheckBackend }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const activeUrl = getApiBaseUrl();
+  const activeUrl = activeBackendUrl || getApiBaseUrl();
 
   const handleUrlUpdated = () => {
     if (onRecheckBackend) {

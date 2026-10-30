@@ -31,8 +31,8 @@ async def startup_event():
 app.include_router(api_router, tags=["Analysis"])
 app.include_router(api_router, prefix="/api", tags=["Analysis (API)"])
 
-@app.get("/health", tags=["Health"])
-@app.get("/api/health", tags=["Health"])
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["Health"])
+@app.api_route("/api/health", methods=["GET", "HEAD"], tags=["Health"])
 async def health_check():
     status = vision_service.get_status()
     return {
