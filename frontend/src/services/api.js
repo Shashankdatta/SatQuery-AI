@@ -66,7 +66,7 @@ export function resetApiBaseUrl() {
 /**
  * Internal probe helper for /health endpoint.
  */
-async function probeHealth(url, timeoutMs = 10000) {
+async function probeHealth(url, timeoutMs = 35000) {
   const baseUrl = (url || '').replace(/\/+$/, '');
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);

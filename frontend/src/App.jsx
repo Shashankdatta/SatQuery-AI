@@ -25,18 +25,26 @@ export default function App() {
   const [activeBackendUrl, setActiveBackendUrl] = useState(getApiBaseUrl());
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
+  const isCheckingRef = React.useRef(false);
+
   // Poll backend health status
   const verifyHealth = useCallback(async () => {
+    if (isCheckingRef.current) return;
+    isCheckingRef.current = true;
     setIsCheckingBackend(true);
-    const res = await checkBackendHealth();
-    setBackendConnected(res.isConnected);
-    setActiveBackendUrl(res.url);
-    setIsCheckingBackend(false);
+    try {
+      const res = await checkBackendHealth();
+      setBackendConnected(res.isConnected);
+      setActiveBackendUrl(res.url);
+    } finally {
+      setIsCheckingBackend(false);
+      isCheckingRef.current = false;
+    }
   }, []);
 
   useEffect(() => {
     verifyHealth();
-    const interval = setInterval(verifyHealth, 8000);
+    const interval = setInterval(verifyHealth, 15000);
 
     const handleUrlChange = () => {
       setActiveBackendUrl(getApiBaseUrl());
