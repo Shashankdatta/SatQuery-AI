@@ -9,12 +9,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/health': {
-        target: 'https://accuracy-participate-updating-preceding.trycloudflare.com',
+        target: 'https://satquery-ai-5njv.onrender.com',
         changeOrigin: true,
         secure: false,
       },
       '/analyze': {
-        target: 'https://accuracy-participate-updating-preceding.trycloudflare.com',
+        target: 'https://satquery-ai-5njv.onrender.com',
         changeOrigin: true,
         secure: false,
       },

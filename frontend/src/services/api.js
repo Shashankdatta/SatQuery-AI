@@ -5,7 +5,7 @@
  */
 
 export const DEFAULT_API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || 'https://accuracy-participate-updating-preceding.trycloudflare.com';
+  import.meta.env.VITE_API_BASE_URL || 'https://satquery-ai-5njv.onrender.com';
 
 export const API_BASE_URL = DEFAULT_API_BASE_URL;
 
@@ -15,8 +15,10 @@ export const API_BASE_URL = DEFAULT_API_BASE_URL;
  */
 const OBSOLETE_ENDPOINTS = [
   'loca.lt',
+  'trycloudflare.com',
   'honor-proceed-olympus-eleven',
   'mild-overseas-architecture-sally',
+  'accuracy-participate-updating-preceding',
   'itchy-lands-kneel',
 ];
 

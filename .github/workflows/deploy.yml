@@ -39,7 +39,7 @@ jobs:
       - name: Build frontend
         working-directory: ./frontend
         env:
-          VITE_API_BASE_URL: https://accuracy-participate-updating-preceding.trycloudflare.com
+          VITE_API_BASE_URL: https://satquery-ai-5njv.onrender.com
         run: npm run build
 
       - name: Setup Pages
