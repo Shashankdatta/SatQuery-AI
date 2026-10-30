@@ -6,12 +6,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install system libraries needed for imaging and computer vision
+# Install system utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    git \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip and install lightweight CPU-only PyTorch
