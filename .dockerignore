@@ -1,0 +1,9 @@
+.git/
+frontend/
+backend/.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+wheels/
+.pytest_cache/
