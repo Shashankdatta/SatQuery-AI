@@ -165,9 +165,8 @@ class InstanceCountingPipeline:
         # 5. Instance Separability & Resolution Evaluation (Abstention Gate)
         # Check if buildings are too dense or resolution is insufficient to guarantee exactness
         # Conditions for abstaining from an exact number:
-        # A. Low resolution: min image dimension < 200 px and count > 3
-        # B. Dense clustering: average instance separation is very tight
-        # C. Very high count (> 15 instances in a single scene often have touching rooftops)
+        # A. Low resolution: min image dimension < 220 px and count > 3
+        # B. Dense clustering: instance count > 15 often has touching rooftops
         is_exact_reliable = True
         abstain_reason = None
 
@@ -194,15 +193,15 @@ class InstanceCountingPipeline:
         # 6. Generate Reliable Answer (Abstain if unreliable)
         if not is_exact_reliable:
             answer = (
-                f"I can identify several building clusters across the scene, "
-                f"but an exact building count cannot be reliably determined from this image ({abstain_reason})."
+                f"I can observe building structures across the scene, "
+                f"but an exact count cannot be reliably determined from this image ({abstain_reason})."
             )
             return {
                 "count": None,
                 "is_reliable": False,
                 "abstained": True,
                 "answer": answer,
-                "detections": detections,
+                "detections": [],  # Do not return unverified instance proposals on abstention
                 "reason": abstain_reason
             }
 
@@ -352,13 +351,24 @@ class InstanceCountingPipeline:
                 "reason": f"'{target_concept}' is continuous spatial infrastructure, not discrete countable instances."
             }
 
+        if target in ["feature", "general_feature"]:
+            return {
+                "count": None,
+                "is_reliable": False,
+                "abstained": True,
+                "answer": "The image does not provide enough visual evidence to identify or count distinct object instances reliably.",
+                "detections": [],
+                "reason": "Target feature not specifically grounded."
+            }
+
+        display_target = target if target.endswith("s") else f"{target}s"
         return {
             "count": None,
             "is_reliable": False,
             "abstained": True,
-            "answer": f"I can observe the scene, but an exact count of '{target_concept}' cannot be reliably determined from this image.",
+            "answer": f"Visual analysis does not detect verified evidence of {display_target} in this image to perform a count.",
             "detections": [],
-            "reason": "Instance boundaries lack verified separability."
+            "reason": f"No validated {target} footprints detected."
         }
 
 
